@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import json
 import sys
@@ -11,6 +13,8 @@ from virtual_sales_agent.runtime import AgentRuntime
 
 
 class ChatHandler(BaseHTTPRequestHandler):
+    runtime_cls = AgentRuntime
+
     def _write_json(self, status_code: int, payload: dict) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status_code)
@@ -30,7 +34,7 @@ class ChatHandler(BaseHTTPRequestHandler):
 
         customer_id = payload.get("customer_id") or settings.CUSTOMER_ID or str(uuid.uuid4())
         thread_id = payload.get("thread_id") or settings.THREAD_ID or str(uuid.uuid4())
-        runtime = self.server.runtime_cls.get_or_create(customer_id, thread_id)
+        runtime = self.runtime_cls.get_or_create(customer_id, thread_id)
 
         approval = payload.get("approval")
         if approval is not None:
@@ -55,16 +59,10 @@ class ChatHandler(BaseHTTPRequestHandler):
         return
 
 
-class AppServer(ThreadingHTTPServer):
-    def __init__(self, host: str, port: int, runtime_cls):
-        super().__init__((host, port), ChatHandler)
-        self.runtime_cls = runtime_cls
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Virtual Sales Agent")
     parser.add_argument("--mode", choices=["gui", "api", "chat"], default="gui")
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--host", default="::1")
     parser.add_argument("--port", type=int, default=8501)
     parser.add_argument("--customer-id", default=None)
     parser.add_argument("--thread-id", default=None)
@@ -72,7 +70,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--llm-base-url", default="http://localhost:8001/v1")
     parser.add_argument("--llm-api-key", default="")
     parser.add_argument("--prompt", default=None)
-    return parser.parse_args()
+    args = parser.parse_args()
+    return args
 
 
 def run_streamlit() -> int:
@@ -89,9 +88,9 @@ def run_chat(prompt: str | None, customer_id: str | None, thread_id: str | None)
         print("--prompt is required in chat mode")
         return 2
 
-    runtime_customer_id = customer_id or str(uuid.uuid4())
-    runtime_thread_id = thread_id or str(uuid.uuid4())
-    runtime = AgentRuntime.get_or_create(runtime_customer_id, runtime_thread_id)
+    customer_id = customer_id or str(uuid.uuid4())
+    thread_id = thread_id or str(uuid.uuid4())
+    runtime = AgentRuntime.get_or_create(customer_id, thread_id)
 
     response = runtime.chat(prompt)
     response_json = json.dumps(response, ensure_ascii=False)
@@ -100,8 +99,8 @@ def run_chat(prompt: str | None, customer_id: str | None, thread_id: str | None)
 
 
 def run_api() -> int:
-    server = AppServer(settings.HOST, settings.PORT, AgentRuntime)
-    print(f"API server listening on http://{settings.HOST}:{settings.PORT}")
+    server = ThreadingHTTPServer((settings.HOST, settings.PORT), ChatHandler)
+    print(f"API server listening on http://[{settings.HOST}]:{settings.PORT}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

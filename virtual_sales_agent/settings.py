@@ -1,4 +1,4 @@
-HOST = "127.0.0.1"
+HOST = "::1"
 PORT = 8501
 LLM_MODEL = "unsloth/Qwen3-Next-Instruct"
 LLM_BASE_URL = "http://localhost:8001/v1"

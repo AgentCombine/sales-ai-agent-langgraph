@@ -154,7 +154,11 @@ def create_order(
     customer_id = configuration.get("customer_id", None)
 
     if not customer_id:
-        return ValueError("No customer ID configured.")
+        return {
+            "status": "error",
+            "message": "No customer ID configured.",
+            "customer_id": None,
+        }
 
     with db_manager.get_connection() as conn:
         cursor = conn.cursor()
@@ -177,6 +181,10 @@ def create_order(
             for item in products:
                 product_name = item["ProductName"]
                 quantity = item["Quantity"]
+                if not isinstance(quantity, int) or quantity <= 0:
+                    raise ValueError(
+                        f"Invalid quantity for {product_name}. Quantity must be a positive integer."
+                    )
 
                 # Get product details
                 cursor.execute(
