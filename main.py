@@ -1,256 +1,130 @@
+#!/usr/bin/env python3
+
+import argparse
 import json
+import sys
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import streamlit as st
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.messages.tool import ToolMessage
+from streamlit.web import bootstrap
 
-from virtual_sales_agent.graph import graph
-
-
-def set_page_config():
-    st.set_page_config(
-        page_title="Virtual Sales Agent Chat",
-        layout="wide",
-        initial_sidebar_state="expanded",
-    )
+from virtual_sales_agent import settings
+from virtual_sales_agent.runtime import AgentRuntime
 
 
-def set_page_style():
-    st.markdown(
-        f"""
-        <style>
-        {open("assets/style.css").read()}
-        </style>
-    """,
-        unsafe_allow_html=True,
-    )
+class ChatHandler(BaseHTTPRequestHandler):
+    runtime_cls = AgentRuntime
+
+    def _write_json(self, status_code: int, payload: dict) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self) -> None:
+        if self.path != "/chat":
+            self._write_json(404, {"error": "Not found"})
+            return
+
+        content_length = int(self.headers.get("Content-Length", "0"))
+        raw_body = self.rfile.read(content_length)
+        payload = json.loads(raw_body.decode("utf-8") or "{}")
+
+        customer_id = payload.get("customer_id") or settings.CUSTOMER_ID or str(uuid.uuid4())
+        thread_id = payload.get("thread_id") or settings.THREAD_ID or str(uuid.uuid4())
+        runtime = self.runtime_cls.get_or_create(customer_id, thread_id)
+
+        approval = payload.get("approval")
+        if approval is not None:
+            decision = approval.get("decision")
+            if decision == "approve":
+                result = runtime.approve()
+                self._write_json(200, result)
+                return
+            if decision == "deny":
+                reason = approval.get("reason", "No reason provided")
+                result = runtime.deny(reason)
+                self._write_json(200, result)
+                return
+            self._write_json(400, {"error": "approval.decision must be approve or deny"})
+            return
+
+        message = payload["message"]
+        result = runtime.chat(message)
+        self._write_json(200, result)
+
+    def log_message(self, format: str, *args) -> None:
+        return
 
 
-def initialize_session_state():
-    """Initialize session state variables."""
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    if "thread_id" not in st.session_state:
-        st.session_state.thread_id = str(uuid.uuid4())
-
-    if "pending_approval" not in st.session_state:
-        st.session_state.pending_approval = None
-
-    if "config" not in st.session_state:
-        st.session_state.config = {
-            "configurable": {
-                "customer_id": "123456789",
-                "thread_id": st.session_state.thread_id,
-            }
-        }
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Virtual Sales Agent")
+    parser.add_argument("--mode", choices=["gui", "api", "chat"], default="gui")
+    parser.add_argument("--host", default="::1")
+    parser.add_argument("--port", type=int, default=8501)
+    parser.add_argument("--customer-id", default=None)
+    parser.add_argument("--thread-id", default=None)
+    parser.add_argument("--llm-model", default="unsloth/Qwen3-Next-Instruct")
+    parser.add_argument("--llm-base-url", default="http://localhost:8001/v1")
+    parser.add_argument("--llm-api-key", default="")
+    parser.add_argument("--prompt", default=None)
+    args = parser.parse_args()
+    return args
 
 
-def setup_sidebar():
-    """Configure the sidebar with agent information and controls."""
-    with st.sidebar:
-        st.markdown(
-            """
-            <div class="agent-profile">
-                <div class="profile-header">
-                    <div class="avatar">🤖</div>
-                    <h1>Virtual Sales Agent</h1>
-                </div>
-                <div class="feature-list">
-                    <div class="feature-item">
-                        <span class="icon">🛒</span>
-                        <span>Browse available products</span>
-                    </div>
-                    <div class="feature-item">
-                        <span class="icon">📦</span>
-                        <span>Place orders</span>
-                    </div>
-                    <div class="feature-item">
-                        <span class="icon">🚚</span>
-                        <span>Track your orders</span>
-                    </div>
-                    <div class="feature-item">
-                        <span class="icon">🎯</span>
-                        <span>Get personalized recommendations</span>
-                    </div>
-                </div>
-                <div class="status-card">
-                    <div class="status-indicator"></div>
-                    <span>Ready to Assist</span>
-                </div>
-            </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown("---")
-        if st.button("🔄 Start New Chat", use_container_width=True):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-
-        if st.button("🔍 Visualize Workflow", use_container_width=True):
-            st.image("assets/graph.png")
-
-        st.markdown(
-            """
-            <div class="sidebar-footer">
-                <div class="powered-by">
-                    Enhanced by AI • Crafted for You
-                </div>
-            </div>
-        """,
-            unsafe_allow_html=True,
-        )
+def run_streamlit() -> int:
+    flag_options = {
+        "server.address": settings.HOST,
+        "server.port": settings.PORT,
+    }
+    bootstrap.run("streamlit_app.py", False, [], flag_options)
+    return 0
 
 
-def display_chat_history():
-    """Display the chat history."""
-    if not st.session_state.messages:
-        st.markdown(
-            """
-            <div style='text-align: center; padding: 30px;'>
-                <h1>👋 Welcome!</h1>
-                <p>How can I assist you today?</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+def run_chat(prompt: str | None, customer_id: str | None, thread_id: str | None) -> int:
+    if prompt is None:
+        print("--prompt is required in chat mode")
+        return 2
 
-    for message in st.session_state.messages:
-        role = "user" if isinstance(message, HumanMessage) else "assistant"
-        with st.chat_message(role):
-            st.write(message.content)
+    customer_id = customer_id or str(uuid.uuid4())
+    thread_id = thread_id or str(uuid.uuid4())
+    runtime = AgentRuntime.get_or_create(customer_id, thread_id)
+
+    response = runtime.chat(prompt)
+    response_json = json.dumps(response, ensure_ascii=False)
+    print(response_json)
+    return 0
 
 
-def process_events(event):
-    """Process events from the graph and extract messages."""
-    seen_ids = set()
-
-    if isinstance(event, dict) and "messages" in event:
-        messages = event["messages"]
-        last_message = messages[-1] if messages else None
-
-        if isinstance(last_message, AIMessage):
-            if last_message.id not in seen_ids and last_message.content:
-                seen_ids.add(last_message.id)
-                st.session_state.messages.append(last_message)
-                with st.chat_message("assistant"):
-                    st.write(last_message.content)
-
-            if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-                return last_message.tool_calls[0]
-
-    return None
+def run_api() -> int:
+    server = ThreadingHTTPServer((settings.HOST, settings.PORT), ChatHandler)
+    print(f"API server listening on http://[{settings.HOST}]:{settings.PORT}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    server.server_close()
+    return 0
 
 
-def handle_tool_approval(snapshot, event):
-    """Handle tool approval process."""
-    st.write("⚠️ The assistant wants to perform an action. Do you approve?")
+def main() -> int:
+    args = parse_args()
+    settings.configure(args)
 
-    last_message = snapshot.values.get("messages", [])[-1]
+    if args.mode == "gui":
+        return run_streamlit()
 
-    if (
-        isinstance(last_message, AIMessage)
-        and hasattr(last_message, "tool_calls")
-        and last_message.tool_calls
-    ):
-        tool_call = last_message.tool_calls[0]
-        with st.chat_message("assistant"):
-            st.markdown("#### 🔧 Proposed Action")
+    if args.mode == "api":
+        return run_api()
 
-            with st.expander("View Function Details", expanded=True):
-                st.info(f"Function: **{tool_call['name']}**")
+    if args.mode == "chat":
+        return run_chat(args.prompt, args.customer_id, args.thread_id)
 
-                try:
-                    args_formatted = json.dumps(tool_call["args"], indent=2)
-                    st.code(f"Arguments:\n{args_formatted}", language="json")
-                except:
-                    st.code(f"Arguments:\n{tool_call['args']}")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("✅ Approve"):
-            with st.spinner("Processing..."):
-                try:
-                    result = graph.invoke(None, st.session_state.config)
-                    process_events(result)
-                    st.session_state.pending_approval = None
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error processing approval: {str(e)}")
-
-    with col2:
-        if st.button("❌ Deny"):
-            st.session_state.show_reason_input = True
-
-        if st.session_state.get("show_reason_input", False):
-            reason = st.text_input("Please explain why you're denying this action:")
-            submit = st.button("Submit Denial", key="submit_denial")
-            if reason and submit:
-                with st.spinner("Processing..."):
-                    try:
-                        result = graph.invoke(
-                            {
-                                "messages": [
-                                    ToolMessage(
-                                        tool_call_id=last_message.tool_calls[0]["id"],
-                                        content=f"API call denied by user. Reasoning: '{reason}'. Continue assisting, accounting for the user's input.",
-                                    )
-                                ]
-                            },
-                            st.session_state.config,
-                        )
-                        process_events(result)
-                        st.session_state.pending_approval = None
-                        st.session_state.show_reason_input = False
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error processing denial: {str(e)}")
-
-
-def main():
-    set_page_config()
-    set_page_style()
-    initialize_session_state()
-    setup_sidebar()
-
-    display_chat_history()
-
-    if st.session_state.pending_approval:
-        handle_tool_approval(*st.session_state.pending_approval)
-
-    if prompt := st.chat_input("What would you like to order?"):
-        human_message = HumanMessage(content=prompt)
-        st.session_state.messages.append(human_message)
-        with st.chat_message("user"):
-            st.write(prompt)
-
-        try:
-            with st.spinner("Thinking..."):
-                events = list(
-                    graph.stream(
-                        {"messages": st.session_state.messages},
-                        st.session_state.config,
-                        stream_mode="values",
-                    )
-                )
-
-                last_event = events[-1]
-                tool_call = process_events(last_event)
-
-                if tool_call:
-                    snapshot = graph.get_state(st.session_state.config)
-                    if snapshot.next:
-                        for event in events:
-                            st.session_state.pending_approval = (snapshot, event)
-                            st.rerun()
-
-        except Exception as e:
-            st.error(f"Error processing message: {str(e)}")
+    print(f"Unsupported mode: {args.mode}")
+    return 2
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

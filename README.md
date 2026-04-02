@@ -155,12 +155,20 @@ Follow these steps to set up and run the Virtual Sales Agent:
    python3 setup_database.py
    ```
 
-6. **Launch the Streamlit App:**
-   ```bash
-   streamlit run main.py
-   ```
-
-   This will open the application in your web browser, and you can start interacting with the Virtual Sales Agent.
+6. **Run the app in your preferred mode:**
+   - **GUI (Streamlit):**
+     ```bash
+     python3 main.py --mode gui --host 127.0.0.1 --port 8501
+     ```
+   - **API mode (simple JSON endpoint):**
+     ```bash
+     python3 main.py --mode api --host 127.0.0.1 --port 8080
+     ```
+     Then call `POST /chat` with JSON payloads.
+   - **Chat CLI mode (headless):**
+     ```bash
+     python3 main.py --mode chat --prompt "What products do you have?"
+     ```
 
 ---
 

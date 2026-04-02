@@ -1,4 +1,3 @@
-import os
 from datetime import datetime
 from typing import Annotated
 
@@ -22,6 +21,7 @@ from virtual_sales_agent.tools import (
     search_products_recommendations,
 )
 from virtual_sales_agent.utils import create_tool_node_with_fallback
+from virtual_sales_agent import settings
 
 load_dotenv()
 
@@ -72,9 +72,9 @@ class Assistant:
 
 #llm = ChatVertexAI(model="gemini-2.0-flash-exp")
 llm = ChatOpenAI(
-    model="unsloth/Qwen3-Next-Instruct",
-    base_url="http://localhost:8001/v1",
-    api_key="",
+    model=settings.LLM_MODEL,
+    base_url=settings.LLM_BASE_URL,
+    api_key=settings.LLM_API_KEY,
 )
 
 assistant_prompt = ChatPromptTemplate.from_messages(
