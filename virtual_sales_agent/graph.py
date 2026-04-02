@@ -3,10 +3,11 @@ from datetime import datetime
 from typing import Annotated
 
 from dotenv import load_dotenv
-from google.cloud import aiplatform
+#from google.cloud import aiplatform
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
-from langchain_google_vertexai import ChatVertexAI
+#from langchain_google_vertexai import ChatVertexAI
+from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import AnyMessage, add_messages
@@ -24,20 +25,20 @@ from virtual_sales_agent.utils import create_tool_node_with_fallback
 
 load_dotenv()
 
-os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
-os.environ["LANGCHAIN_TRACING_V2"] = os.getenv("LANGCHAIN_TRACING_V2")
-os.environ["LANGCHAIN_ENDPOINT"] = os.getenv("LANGCHAIN_ENDPOINT")
-os.environ["LANGCHAIN_PROJECT"] = os.getenv("LANGCHAIN_PROJECT")
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv(
-    "GOOGLE_APPLICATION_CREDENTIALS"
-)
-os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
+#os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
+#os.environ["LANGCHAIN_TRACING_V2"] = os.getenv("LANGCHAIN_TRACING_V2")
+#os.environ["LANGCHAIN_ENDPOINT"] = os.getenv("LANGCHAIN_ENDPOINT")
+#os.environ["LANGCHAIN_PROJECT"] = os.getenv("LANGCHAIN_PROJECT")
+#os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv(
+#    "GOOGLE_APPLICATION_CREDENTIALS"
+#)
+#os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
 
-PROJECT_ID = os.getenv("PROJECT_ID")
-REGION = os.getenv("REGION")
+#PROJECT_ID = os.getenv("PROJECT_ID")
+#REGION = os.getenv("REGION")
 
 # Initialize Vertex AI
-aiplatform.init(project=PROJECT_ID, location=REGION)
+#aiplatform.init(project=PROJECT_ID, location=REGION)
 
 
 class State(TypedDict):
@@ -69,7 +70,12 @@ class Assistant:
         return {"messages": result}
 
 
-llm = ChatVertexAI(model="gemini-2.0-flash-exp")
+#llm = ChatVertexAI(model="gemini-2.0-flash-exp")
+llm = ChatOpenAI(
+    model="unsloth/Qwen3-Next-Instruct",
+    base_url="http://localhost:8001/v1",
+    api_key="",
+)
 
 assistant_prompt = ChatPromptTemplate.from_messages(
     [
